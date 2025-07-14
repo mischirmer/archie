@@ -1,0 +1,36 @@
+{
+	"max_instruction_count": 100,
+	"start" : {
+		"address" : 0x400049b8,
+		"counter" : 1
+	},
+	"end" : [
+	    {
+		"address" : 0x40004af4,
+		"counter" : 1
+	    }
+	],
+	"faults" :[
+			
+			[
+				{
+					"fault_address"		: [-1],
+					"fault_type"		: "instruction",
+					"fault_model"		: "overwrite",
+					"num_bytes"		: 4,
+					"fault_lifespan"	: [1],
+					"fault_mask"		: [0xd503201f],
+					"trigger_address"	: [0x400044f8],
+					"trigger_counter"	: [1]
+				}
+			]
+		],
+		
+	"memorydump": [
+			{
+				"address" : 0x40000000,
+				"length" : 1023
+			}
+		],
+	"mem_info": true
+}
