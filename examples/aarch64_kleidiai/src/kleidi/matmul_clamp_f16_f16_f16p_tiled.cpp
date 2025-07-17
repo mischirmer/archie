@@ -14,7 +14,7 @@
 
 #define TILED 0
 #define ABFT 1
-#define EPSILON 1.0f
+#define EPSILON 0.1f
 #define PROFILING 0
 
 #define __aarch64__
@@ -373,9 +373,6 @@ int run_test_case(const TestCase &test_case)
     //------------------------------------
     //------------------------------------
 
-    asm volatile("nop" ::: "memory");
-    asm volatile("nop" ::: "memory");
-    asm volatile("nop" ::: "memory");
 
     
     const size_t nr = ukernel.get_nr();
@@ -407,6 +404,10 @@ int run_test_case(const TestCase &test_case)
     const size_t n_step = ukernel.get_n_step(); // Scheduling along N
     const float16_t *dst = test_case.dst_data;
 
+     asm volatile("nop" ::: "memory");
+    asm volatile("nop" ::: "memory");
+    asm volatile("nop" ::: "memory");
+
     for (size_t i_m_step = 0; i_m_step < M; i_m_step += m_step)
     {
         for (size_t i_n_step = 0; i_n_step < N; i_n_step += n_step)
@@ -432,6 +433,10 @@ int run_test_case(const TestCase &test_case)
             );
         }
     }
+
+    asm volatile("nop" ::: "memory");
+    asm volatile("nop" ::: "memory");
+    asm volatile("nop" ::: "memory");
 
 #if defined(ABFT) && ABFT == 1
     float16_t oc = neon_oc_f16_f16(M, N, N, dst, output_checksum_row, output_checksum_col);
