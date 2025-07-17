@@ -8,13 +8,15 @@ LD = aarch64-none-elf-ld
 BUILD_DIR = build
 
 # Compiler flags for bare metal (without newlib)
-CFLAGS = -mcpu=cortex-a53+fp16 -nostdlib -ffreestanding
-CXXFLAGS = -mcpu=cortex-a53+fp16 -nostdlib -ffreestanding -fno-exceptions -fno-rtti -std=c++11
+CFLAGS = -mcpu=cortex-a53+fp16 -nostdlib -ffreestanding -IxxHash -DXXH_NO_MALLOC -DXXH_STATIC_LINKING_ONLY -DXXH_NO_STREAM
+CXXFLAGS = -mcpu=cortex-a53+fp16 -nostdlib -ffreestanding -fno-exceptions -fno-rtti -std=c++11 -IxxHash -DXXH_NO_MALLOC -DXXH_STATIC_LINKING_ONLY -DXXH_NO_STREAM
 
 # Source files
 KLEIDI_DIR = kleidi
 KLEIDI_C_SOURCES = $(KLEIDI_DIR)/kai_matmul_clamp_f16_f16_f16p16x1biasf16_6x16x8_neon_mla.c \
-                   $(KLEIDI_DIR)/kai_rhs_pack_kxn_f16p16x1biasf16_f16_f16_neon.c
+                   $(KLEIDI_DIR)/kai_rhs_pack_kxn_f16p16x1biasf16_f16_f16_neon.c \
+                   xxHash/xxhash.c \
+                   baremetal_libc.c
 
 KLEIDI_CPP_SOURCES = $(KLEIDI_DIR)/matmul_clamp_f16_f16_f16p_tiled.cpp
 
@@ -34,6 +36,7 @@ all: kleidiai_test.elf
 $(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)
 	mkdir -p $(BUILD_DIR)/$(KLEIDI_DIR)
+	mkdir -p $(BUILD_DIR)/xxHash
 
 kleidiai_test.elf: link_script.ld $(OBJECTS)
 	$(LD) -T link_script.ld $(OBJECTS) -o kleidiai_test.elf

@@ -1,3 +1,6 @@
 [submodule "qemu"]
 	path = qemu
 	url = https://github.com/Fraunhofer-AISEC/archie-qemu.git
+[submodule "examples/aarch64_kleidiai/src/xxHash"]
+	path = examples/aarch64_kleidiai/src/xxHash
+	url = https://github.com/Cyan4973/xxHash.git
