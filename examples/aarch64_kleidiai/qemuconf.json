@@ -3,5 +3,5 @@
 	"kernel" : "src/kleidiai_test.elf",
 	"plugin" : "../../faultplugin/libfaultplugin.so",
 	"machine" : "virt",
-	"additional_qemu_args" : "-cpu max"
+	"additional_qemu_args" : "-cpu max -L ../../qemu/pc-bios"
 }

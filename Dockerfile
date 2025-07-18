@@ -46,6 +46,9 @@ COPY qemu/ /archie/qemu/
 RUN git submodule update --init
 
 # Build QEMU
+RUN ./build.sh
+WORKDIR /archie/qemu
+RUN git checkout 1ab3c799b6fd23da29eb41a3accf8d053ee2d9cc
 RUN mkdir -p qemu/build/debug
 WORKDIR /archie/qemu/build/debug
 RUN ./../../configure --target-list=arm-softmmu,aarch64-softmmu,riscv64-softmmu --enable-debug --enable-plugins --disable-sdl --disable-gtk --disable-curses --disable-vnc
@@ -53,7 +56,7 @@ RUN make -j $(nproc)
 
 # Build fault plugin
 WORKDIR /archie/faultplugin
-RUN make
+RUN make clean && make
 
 
 # Copy the aarch64_kleidiai example folder
