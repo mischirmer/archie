@@ -17,43 +17,57 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 
-RUN git clone https://github.com/JoGei/archie.git /archie
-
-WORKDIR /archie
-
-RUN git submodule update --init
-RUN pip3 install -r requirements.txt
-RUN chmod +x build.sh && ./build.sh
-
-WORKDIR /archie
-
 # Install aarch64-none-elf toolchain
+WORKDIR /archie
 RUN apt-get update && apt-get install -y wget && rm -rf /var/lib/apt/lists/*
 RUN wget https://developer.arm.com/-/media/Files/downloads/gnu/14.3.rel1/binrel/arm-gnu-toolchain-14.3.rel1-x86_64-aarch64-none-elf.tar.xz -O /tmp/toolchain.tar.xz
 RUN tar -xf /tmp/toolchain.tar.xz -C /opt/
 RUN rm /tmp/toolchain.tar.xz
 ENV PATH="/opt/arm-gnu-toolchain-14.3.rel1-x86_64-aarch64-none-elf/bin:${PATH}"
 
-# Copy the build source of the kleidi example
-RUN mkdir /archie/examples/aarch64_kleidiai
-RUN mkdir /archie/examples/aarch64_kleidiai/src
-RUN mkdir /archie/examples/aarch64_kleidiai/src/build
+# Install Requirements before copying the rest of the code
+# This allows Docker to cache the layer if requirements don't change
+WORKDIR /archie
+COPY requirements.txt /archie/requirements.txt
+RUN pip3 install -r requirements.txt
 
-COPY examples/aarch64_kleidiai/src/. examples/aarch64_kleidiai/src/
-RUN rm -rf examples/aarch64_kleidiai/src/build
+# Copy everything except examples/aarch64_kleidiai to cache layers
+COPY build.sh calculate_trigger.py controller.py fault-readme.md faultclass.py goldenrun.py hdf5-readme.md hdf5logger.py LICENSE README.md requirements.txt util.py /archie/
+COPY .git/ /archie/.git/
+COPY analysis/ /archie/analysis/
+COPY examples/aarch64/ /archie/examples/aarch64/
+COPY examples/aarch64-softmmu/ /archie/examples/aarch64-softmmu/
+COPY examples/riscv64/ /archie/examples/riscv64/
+COPY examples/stm32/ /archie/examples/stm32/
+COPY examples/stm32-timeout-wfi/ /archie/examples/stm32-timeout-wfi/
+COPY faultplugin/ /archie/faultplugin/
+COPY protobuf/ /archie/protobuf/
+COPY qemu/ /archie/qemu/
+RUN git submodule update --init
 
-COPY examples/aarch64_kleidiai/*.json examples/aarch64_kleidiai/
-COPY examples/aarch64_kleidiai/run.sh examples/aarch64_kleidiai/
+# Build QEMU
+RUN mkdir -p qemu/build/debug
+WORKDIR /archie/qemu/build/debug
+RUN ./../../configure --target-list=arm-softmmu,aarch64-softmmu,riscv64-softmmu --enable-debug --enable-plugins --disable-sdl --disable-gtk --disable-curses --disable-vnc
+RUN make -j $(nproc)
 
-WORKDIR /archie/examples/aarch64_kleidiai/src
+# Build fault plugin
+WORKDIR /archie/faultplugin
 RUN make
 
+
+# Copy the aarch64_kleidiai example folder
+COPY examples/aarch64_kleidiai/ /archie/examples/aarch64_kleidiai/
+
+WORKDIR /archie/examples/aarch64_kleidiai/src
+# RUN make
 # Copy the Precompiled ELF to ensure correct addresses
-COPY examples/aarch64_kleidiai/src/kleidiai_test.elf examples/aarch64_kleidiai/src/build/
+COPY examples/aarch64_kleidiai/src/kleidiai_test.elf examples/aarch64_kleidiai/src/
 
 WORKDIR /archie/examples/aarch64_kleidiai/
-RUN chmod +x run.sh
+RUN chmod +x run_instruction_skip.sh run_weight_tampering.sh
 
 # Test Case
-WORKDIR /archie/examples/stm32
-RUN ./run.sh
+RUN chmod +x run_minimal.sh && ./run_minimal.sh
+
+ENTRYPOINT ["/bin/bash"]
