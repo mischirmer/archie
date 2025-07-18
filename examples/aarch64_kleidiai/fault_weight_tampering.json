@@ -1,0 +1,55 @@
+{
+	"max_instruction_count": 100000,
+	"start": {
+		"address": 0x40008524,
+		"counter": 1
+	},
+	"end": {
+		"address": 0x40008528,
+		"counter": 1
+	},
+
+	"faults" :[
+			[
+				{
+					"fault_address"		: [0x400086f8, 0x4000aaf4, 2],
+					"fault_type"		: "data",
+					"fault_model"		: "toggle",
+					"fault_lifespan"	: [0],
+					"fault_mask"		: [0x10],
+					"trigger_address"	: [0x40007034],
+					"trigger_counter"	: [1]
+				}
+			],
+			[
+				{
+					"fault_address"		: [0x400086f8, 0x4000aaf4, 2],
+					"fault_type"		: "data",
+					"fault_model"		: "toggle",
+					"fault_lifespan"	: [0],
+					"fault_mask"		: [0x04],
+					"trigger_address"	: [0x40007034],
+					"trigger_counter"	: [1]
+				}
+			],
+			[
+				{
+					"fault_address"		: [0x400086f8, 0x4000aaf4, 2],
+					"fault_type"		: "data",
+					"fault_model"		: "toggle",
+					"fault_lifespan"	: [0],
+					"fault_mask"		: [0x01],
+					"trigger_address"	: [0x40007034],
+					"trigger_counter"	: [1]
+				}
+			]
+		],
+		
+	"memorydump": [
+			{
+				"address": 0x40020cb8,
+				"length": 16
+			}
+		],
+	"mem_info": true
+}
