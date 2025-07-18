@@ -31,6 +31,17 @@
 					"trigger_address"	: [0x40007034],
 					"trigger_counter"	: [1]
 				}
+			],
+			[
+				{
+					"fault_address"		: [0x400086f8, 0x4000aaf4, 2],
+					"fault_type"		: "data",
+					"fault_model"		: "toggle",
+					"fault_lifespan"	: [0],
+					"fault_mask"		: [0x01],
+					"trigger_address"	: [0x40007034],
+					"trigger_counter"	: [1]
+				}
 			]
 		],
 		

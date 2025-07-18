@@ -1,5 +1,5 @@
 {
-	"max_instruction_count": 10000000,
+	"max_instruction_count": 100000,
 	"start": {
 		"address": 0x40007ee4,
 		"counter": 1

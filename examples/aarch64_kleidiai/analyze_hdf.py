@@ -3,7 +3,7 @@ import numpy as np
 
 def compare_all_experiments():
     # Open the HDF5 file
-    with h5py.File('output.hdf5', 'r') as f:
+    with h5py.File('output_weight_tampering.hdf5', 'r') as f:
         # ABFT trigger location - 16 bytes at 0x40020cb8
         # Byte 0: ABFT triggered flag
         # Byte 2: Hash triggered flag  

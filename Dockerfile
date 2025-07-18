@@ -25,19 +25,7 @@ RUN git submodule update --init
 RUN pip3 install -r requirements.txt
 RUN chmod +x build.sh && ./build.sh
 
-# Build QEMU
-RUN mkdir -p qemu/build/debug
-WORKDIR /archie/qemu/build/debug
-RUN ./../../configure --target-list=arm-softmmu,aarch64-softmmu,riscv64-softmmu --enable-debug --enable-plugins --disable-sdl --disable-gtk --disable-curses --disable-vnc
-RUN make -j $(nproc)
-
-# Build fault plugin
-WORKDIR /archie/faultplugin
-RUN make
-
 WORKDIR /archie
-
-
 
 # Install aarch64-none-elf toolchain
 RUN apt-get update && apt-get install -y wget && rm -rf /var/lib/apt/lists/*
@@ -49,16 +37,23 @@ ENV PATH="/opt/arm-gnu-toolchain-14.3.rel1-x86_64-aarch64-none-elf/bin:${PATH}"
 # Copy the build source of the kleidi example
 RUN mkdir /archie/examples/aarch64_kleidiai
 RUN mkdir /archie/examples/aarch64_kleidiai/src
-COPY examples/aarch64_kleidiai/src/kleidi examples/aarch64_kleidiai/src/kleidi
-COPY examples/aarch64_kleidiai/src/link_script.ld examples/aarch64_kleidiai/src/
-COPY examples/aarch64_kleidiai/src/Makefile examples/aarch64_kleidiai/src/
-COPY examples/aarch64_kleidiai/src/startup.s examples/aarch64_kleidiai/src/
-COPY examples/aarch64_kleidiai/fault.json examples/aarch64_kleidiai/
-COPY examples/aarch64_kleidiai/qemuconf.json examples/aarch64_kleidiai/
+RUN mkdir /archie/examples/aarch64_kleidiai/src/build
+
+COPY examples/aarch64_kleidiai/src/. examples/aarch64_kleidiai/src/
+RUN rm -rf examples/aarch64_kleidiai/src/build
+
+COPY examples/aarch64_kleidiai/*.json examples/aarch64_kleidiai/
 COPY examples/aarch64_kleidiai/run.sh examples/aarch64_kleidiai/
 
 WORKDIR /archie/examples/aarch64_kleidiai/src
 RUN make
 
+# Copy the Precompiled ELF to ensure correct addresses
+COPY examples/aarch64_kleidiai/src/kleidiai_test.elf examples/aarch64_kleidiai/src/build/
+
 WORKDIR /archie/examples/aarch64_kleidiai/
 RUN chmod +x run.sh
+
+# Test Case
+WORKDIR /archie/examples/stm32
+RUN ./run.sh
