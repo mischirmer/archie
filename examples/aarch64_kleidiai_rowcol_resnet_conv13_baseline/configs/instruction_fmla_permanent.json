@@ -1,0 +1,19 @@
+{
+    "max_instruction_count": 10000,
+    "start": {
+        "address": 1073774308,
+        "counter": 1
+    },
+    "end": {
+        "address": 1073776448,
+        "counter": 1
+    },
+    "faults": [],
+    "memorydump": [
+        {
+            "address": 1075812376,
+            "length": 24
+        }
+    ],
+    "mem_info": true
+}

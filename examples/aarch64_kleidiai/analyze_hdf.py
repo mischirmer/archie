@@ -1,17 +1,101 @@
 import h5py
 import numpy as np
 import argparse
+import struct
+import os
+import csv
+import sys
 
-def compare_all_experiments(analysis_type):
+def find_address_in_objdump(fault_address, objdump_content):
+    """
+    Find the line in objdump.txt that corresponds to the given fault_address.
+    Returns the matching line or None if not found.
+    """
+    if fault_address is None:
+        return None
+    
+    # Convert fault_address to different hex string formats for searching
+    addr_hex_lower = f"{fault_address:x}"          # e.g., "40002768"
+    addr_hex_upper = f"{fault_address:X}"          # e.g., "40002768" 
+    addr_hex_8char = f"{fault_address:08x}"        # e.g., "40002768"
+    addr_hex_8char_upper = f"{fault_address:08X}"  # e.g., "40002768"
+    
+    # Search for lines containing this address
+    for line in objdump_content:
+        line_stripped = line.strip()
+        if not line_stripped:
+            continue
+        
+        # Look for address at the beginning of the line (typical objdump format)
+        # Format is usually: "address:" or "  address:"
+        if ':' in line_stripped:
+            # Extract the address part (before the first colon)
+            addr_part = line_stripped.split(':')[0].strip()
+            
+            # Check if it matches our address in any format
+            if (addr_part.lower() == addr_hex_lower.lower() or 
+                addr_part.lower() == addr_hex_8char.lower() or
+                addr_part == addr_hex_upper or 
+                addr_part == addr_hex_8char_upper):
+                return line
+        
+        # Also check for other possible formats where address might appear anywhere in the line
+        line_lower = line_stripped.lower()
+        if (addr_hex_lower in line_lower or 
+            addr_hex_8char in line_lower):
+            return line
+    
+    return None
+
+def load_objdump_file(objdump_path="src/objdump.txt"):
+    """
+    Load the objdump.txt file and return its content as a list of lines.
+    Returns None if file doesn't exist or can't be read.
+    """
+    if not os.path.exists(objdump_path):
+        print(f"Warning: {objdump_path} not found")
+        return None
+    
+    try:
+        with open(objdump_path, 'r') as f:
+            return f.readlines()
+    except Exception as e:
+        print(f"Warning: Could not read {objdump_path}: {e}")
+        return None
+
+def compare_all_experiments(target_type, fault_type, analysis_type='abft', show_line=False, verbose=False):
     # Determine which HDF5 file to use based on analysis type
-    if analysis_type == 'abft':
-        hdf5_file = 'output_instruction_skip_kernel.hdf5'
-    elif analysis_type == 'hash':
-        hdf5_file = 'output_weight_tampering.hdf5'
+    if target_type == 'instructions' and fault_type == 'transient':
+        hdf5_file = 'output/instructions/transient.hdf5'
+        output_dir = 'output/instructions'
+        analysis_name = 'instructions_transient'
+    elif target_type == 'instructions' and fault_type == 'permanent':
+        hdf5_file = 'output/instructions/permanent.hdf5'
+        output_dir = 'output/instructions'
+        analysis_name = 'instructions_permanent'
+    elif target_type == 'registers' and fault_type == 'transient':
+        hdf5_file = 'output/registers/transient.hdf5'
+        output_dir = 'output/registers'
+        analysis_name = 'registers_transient'
+    elif target_type == 'registers' and fault_type == 'permanent':
+        hdf5_file = 'output/registers/permanent.hdf5'
+        output_dir = 'output/registers'
+        analysis_name = 'registers_permanent'
     else:
-        raise ValueError(f"Invalid analysis type: {analysis_type}")
+        raise ValueError(f"Invalid analysis type: target_type={target_type}, fault_type={fault_type}")
+    
+    # Create output filename for analysis results
+    results_filename = f"{output_dir}/{analysis_name}_{analysis_type}_analysis_results.txt"
     
     print(f"Opening HDF5 file: {hdf5_file}")
+    print(f"Analysis type: {target_type} + {fault_type} ({analysis_type})")
+
+    # Always load objdump file for WARNING and FAILED cases
+    objdump_content = load_objdump_file()
+    if objdump_content:
+        print(f"Loaded objdump.txt with {len(objdump_content)} lines")
+    else:
+        print("Warning: Could not load objdump.txt, objdump lines will not be shown")
     
     # Open the HDF5 file
     with h5py.File(hdf5_file, 'r') as f:
@@ -20,7 +104,18 @@ def compare_all_experiments(analysis_type):
         # Byte 2: Hash triggered flag  
         # Bytes 4-7: Data to compare for ABFT trigger
         # Bytes 8-15: Data to compare for hash trigger
-        abft_trigger_location = 'location_40020cb8_16_1'
+        abft_trigger_location = 'location_40024c80_24_1'
+        
+        # Extract trigger address from the location string
+        # Format: 'location_ADDRESS_SIZE_COUNT'
+        trigger_address = None
+        if abft_trigger_location.startswith('location_'):
+            parts = abft_trigger_location.split('_')
+            if len(parts) >= 2:
+                try:
+                    trigger_address = int(parts[1], 16)  # Convert hex string to int
+                except ValueError:
+                    trigger_address = None
         
         print("Reading golden run ABFT trigger data...")
         
@@ -71,6 +166,9 @@ def compare_all_experiments(analysis_type):
         
         abft_data_errors = []         # Could not read ABFT data
         
+        # Store max_diff values for failed ABFT cases
+        failed_abft_max_diff = []     # List of (experiment_name, max_diff_value, fault_address) tuples
+        
         for exp_name in experiment_names:
             abft_path = f'/fault/{exp_name}/memdumps/{abft_trigger_location}'
             
@@ -84,8 +182,8 @@ def compare_all_experiments(analysis_type):
                 else:
                     exp_abft_flat = exp_abft_data
                 
-                if len(exp_abft_flat) < 16:
-                    print(f"ERROR: {exp_name} - ABFT data too short ({len(exp_abft_flat)} bytes)")
+                if len(exp_abft_flat) < 24:
+                    print(f"ERROR: {exp_name} - ABFT data too short ({len(exp_abft_flat)} bytes, need at least 24)")
                     abft_data_errors.append(exp_name)
                     continue
                 
@@ -94,6 +192,10 @@ def compare_all_experiments(analysis_type):
                 hash_triggered = exp_abft_flat[2]      # Byte 2: Hash triggered flag
                 abft_bytes = exp_abft_flat[4:8]        # Bytes 4-7 for ABFT trigger
                 hash_bytes = exp_abft_flat[8:16]       # Bytes 8-15 for hash trigger
+                
+                # Extract max_diff (float32) from bytes 20-23
+                max_diff_bytes = exp_abft_flat[20:24]
+                max_diff = struct.unpack('<f', bytes(max_diff_bytes))[0]  # Little-endian float32
                 
                 # Special ABFT classifications - Check for timeouts
                 is_timeout = False
@@ -117,7 +219,7 @@ def compare_all_experiments(analysis_type):
                 # Add to timeout list if either condition is met
                 if is_timeout:
                     abft_timeouts.append(exp_name)
-                    print()
+                    # print()
                     continue  # Skip normal analysis for timeout experiments
                 
                 # Check if bytes differ from golden run
@@ -136,13 +238,46 @@ def compare_all_experiments(analysis_type):
                             print(f"  Experiment ABFT: {[hex(b) for b in abft_bytes]}")
                             print(f"  ABFT flag: {abft_triggered}")"""
                         else:
+                            # Read fault_address and trigger_address for this experiment
+                            fault_address = None
+                            trigger_address_from_hdf5 = None
+                            faults_path = f'/fault/{exp_name}/faults'
+                            try:
+                                faults_data = f[faults_path][:]
+                                if len(faults_data) > 0:
+                                    # faults is a structured array with named fields
+                                    fault_address = faults_data[0]['fault_address']  # Get fault_address field
+                                    if 'trigger_address' in faults_data.dtype.names:
+                                        trigger_address_from_hdf5 = faults_data[0]['fault_address']  # Get trigger_address field
+                            except KeyError:
+                                fault_address = None
+                                trigger_address_from_hdf5 = None
+                            
                             incorrect_abft_no_trigger.append(exp_name)
-                            print(f"ERROR ABFT: {exp_name} - CRITICAL!")
-                            print(f"  Bytes 4-7 differ but ABFT not triggered!")
-                            print(f"  Golden ABFT:     {[hex(b) for b in golden_abft_bytes]}")
-                            print(f"  Experiment ABFT: {[hex(b) for b in abft_bytes]}")
-                            print(f"  ABFT flag: {abft_triggered} (should be 1)")
-                            print()
+                            failed_abft_max_diff.append((exp_name, max_diff, fault_address))
+                            if verbose:
+                                print(f"ERROR ABFT: {exp_name} - CRITICAL!")
+                                print(f"  Bytes 4-7 differ but ABFT not triggered!")
+                                print(f"  Golden ABFT:     {[hex(b) for b in golden_abft_bytes]}")
+                                print(f"  Experiment ABFT: {[hex(b) for b in abft_bytes]}")
+                                print(f"  ABFT flag: {abft_triggered} (should be 1)")
+                                print(f"  L1 Norm: {max_diff}")
+                                # Use trigger_address from HDF5 if available, otherwise use extracted one
+                                display_trigger_address = trigger_address_from_hdf5 if trigger_address_from_hdf5 is not None else trigger_address
+                                if display_trigger_address is not None:
+                                    print(f"  trigger_address: 0x{display_trigger_address:x}")
+                                if fault_address is not None:
+                                    print(f"  fault_address: 0x{fault_address:x}")
+                                    # Show corresponding line from objdump for FAILED cases
+                                    if objdump_content:
+                                        objdump_line = find_address_in_objdump(fault_address, objdump_content)
+                                        if objdump_line:
+                                            print(f"  objdump_line: {objdump_line.strip()}")
+                                        else:
+                                            print(f"  objdump_line: not found for 0x{fault_address:x}")
+                                else:
+                                    print(f"  fault_address: not found")
+                                print()
                     else:
                         # Bytes 4-7 are same, ABFT should not be triggered (≠ 1)
                         if abft_triggered != 1:
@@ -151,16 +286,50 @@ def compare_all_experiments(analysis_type):
                             print(f"  Bytes 4-7 same as golden, ABFT correctly not triggered")
                             print(f"  ABFT flag: {abft_triggered}")"""
                         else:
+                            # Read fault_address and trigger_address for this experiment
+                            fault_address = None
+                            trigger_address_from_hdf5 = None
+                            faults_path = f'/fault/{exp_name}/faults'
+                            try:
+                                faults_data = f[faults_path][:]
+                                if len(faults_data) > 0:
+                                    # faults is a structured array with named fields
+                                    fault_address = faults_data[0]['fault_address']  # Get fault_address field
+                                    if 'trigger_address' in faults_data.dtype.names:
+                                        trigger_address_from_hdf5 = faults_data[0]['fault_address']  # Get trigger_address field
+                            except KeyError:
+                                fault_address = None
+                                trigger_address_from_hdf5 = None
+                            
                             incorrect_abft_trigger.append(exp_name)
-                            print(f"WARNING ABFT: {exp_name}")
-                            print(f"  Bytes 4-7 same as golden but ABFT triggered!")
-                            print(f"  Golden ABFT:     {[hex(b) for b in golden_abft_bytes]}")
-                            print(f"  Experiment ABFT: {[hex(b) for b in abft_bytes]}")
-                            print(f"  ABFT flag: {abft_triggered} (should not be 1)")
-                            print()
+                            failed_abft_max_diff.append((exp_name, max_diff, fault_address))
+                            if verbose:
+                                print(f"WARNING ABFT: {exp_name}")
+                                print(f"  Bytes 4-7 same as golden but ABFT triggered!")
+                                print(f"  Golden ABFT:     {[hex(b) for b in golden_abft_bytes]}")
+                                print(f"  Experiment ABFT: {[hex(b) for b in abft_bytes]}")
+                                print(f"  ABFT flag: {abft_triggered} (should not be 1)")
+                                print(f"  L1 Norm: {max_diff}")
+                                # Use trigger_address from HDF5 if available, otherwise use extracted one
+                                display_trigger_address = trigger_address_from_hdf5 if trigger_address_from_hdf5 is not None else trigger_address
+                                if display_trigger_address is not None:
+                                    print(f"  trigger_address: 0x{display_trigger_address:x}")
+                                if fault_address is not None:
+                                    print(f"  fault_address: 0x{fault_address:x}")
+                                    # Show corresponding line from objdump for WARNING cases
+                                    if objdump_content:
+                                        objdump_line = find_address_in_objdump(fault_address, objdump_content)
+                                        if objdump_line:
+                                            print(f"  objdump_line: {objdump_line.strip()}")
+                                        else:
+                                            print(f"  objdump_line: not found for 0x{fault_address:x}")
+                                else:
+                                    print(f"  fault_address: not found")
+                                print()
                 else:
                     if analysis_type == 'abft':
-                        print(f"SKIPPED ABFT: {exp_name} - Hash bytes differ, ignoring ABFT analysis")
+                        if verbose:
+                            print(f"SKIPPED ABFT: {exp_name} - Hash bytes differ, ignoring ABFT analysis")
                 
                 # Analyze Hash trigger correctness (only if analyzing hash)
                 if analysis_type == 'hash':
@@ -175,12 +344,13 @@ def compare_all_experiments(analysis_type):
                             print(f"  Hash flag: {hash_triggered}")"""
                         else:
                             incorrect_hash_no_trigger.append(exp_name)
-                            print(f"ERROR HASH: {exp_name} - CRITICAL!")
-                            print(f"  Bytes 8-15 differ but Hash not triggered!")
-                            print(f"  Golden Hash:     {[hex(b) for b in golden_hash_bytes]}")
-                            print(f"  Experiment Hash: {[hex(b) for b in hash_bytes]}")
-                            print(f"  Hash flag: {hash_triggered} (should be 1)")
-                            print()
+                            if verbose:
+                                print(f"ERROR HASH: {exp_name} - CRITICAL!")
+                                print(f"  Bytes 8-15 differ but Hash not triggered!")
+                                print(f"  Golden Hash:     {[hex(b) for b in golden_hash_bytes]}")
+                                print(f"  Experiment Hash: {[hex(b) for b in hash_bytes]}")
+                                print(f"  Hash flag: {hash_triggered} (should be 1)")
+                                print()
                     else:
                         # Bytes 8-15 are same, Hash should not be triggered (≠ 1)
                         if hash_triggered != 1:
@@ -190,16 +360,18 @@ def compare_all_experiments(analysis_type):
                             print(f"  Hash flag: {hash_triggered}")"""
                         else:
                             incorrect_hash_trigger.append(exp_name)
-                            print(f"WARNING HASH: {exp_name}")
-                            print(f"  Bytes 8-15 same as golden but Hash triggered!")
-                            print(f"  Golden Hash:     {[hex(b) for b in golden_hash_bytes]}")
-                            print(f"  Experiment Hash: {[hex(b) for b in hash_bytes]}")
-                            print(f"  Hash flag: {hash_triggered} (should not be 1)")
-                            print()
+                            if verbose:
+                                print(f"WARNING HASH: {exp_name}")
+                                print(f"  Bytes 8-15 same as golden but Hash triggered!")
+                                print(f"  Golden Hash:     {[hex(b) for b in golden_hash_bytes]}")
+                                print(f"  Experiment Hash: {[hex(b) for b in hash_bytes]}")
+                                print(f"  Hash flag: {hash_triggered} (should not be 1)")
+                                print()
 
                     
             except KeyError as e:
-                print(f"SKIPPED: {exp_name} - ABFT trigger data not found: {e}\n")
+                if verbose:
+                    print(f"SKIPPED: {exp_name} - ABFT trigger data not found: {e}\n")
                 abft_data_errors.append(exp_name)
         
         # Calculate metrics
@@ -221,26 +393,32 @@ def compare_all_experiments(analysis_type):
         timeouts = len(abft_timeouts)
         
         print(f"=== ABFT & HASH TRIGGER ANALYSIS SUMMARY ===")
-        print(f"Analysis type: {analysis_type}")
+        print(f"Analysis type: {target_type} + {fault_type} ({analysis_type})")
         print(f"Total experiments: {total_experiments}")
         print(f"Data errors: {data_errors}")
         print(f"Timeouts: {timeouts}")
         print()
         
         if analysis_type == 'abft':
+            # Calculate total for percentage calculations
+            abft_total = correct_abft_trig + incorrect_abft_trig + correct_abft_no_trig + incorrect_abft_no_trig
+            
             print(f"=== ABFT TRIGGER (Bytes 4-7) ===")
-            print(f"Correct ABFT triggers:     {correct_abft_trig} - ABFT triggered when bytes 4-7 differ")
-            print(f"Incorrect ABFT triggers:   {incorrect_abft_trig} - ABFT triggered when bytes 4-7 same")
-            print(f"Correct ABFT no-triggers:  {correct_abft_no_trig} - ABFT not triggered when bytes 4-7 same")
-            print(f"Incorrect ABFT no-triggers: {incorrect_abft_no_trig} - ABFT not triggered when bytes 4-7 differ")
+            print(f"Correct ABFT triggers:     {correct_abft_trig} - ABFT triggered when bytes 4-7 differ ({correct_abft_trig/abft_total*100:.2f}%)")
+            print(f"Incorrect ABFT triggers:   {incorrect_abft_trig} - ABFT triggered when bytes 4-7 same ({incorrect_abft_trig/abft_total*100:.2f}%)")
+            print(f"Correct ABFT no-triggers:  {correct_abft_no_trig} - ABFT not triggered when bytes 4-7 same ({correct_abft_no_trig/abft_total*100:.2f}%)")
+            print(f"Incorrect ABFT no-triggers: {incorrect_abft_no_trig} - ABFT not triggered when bytes 4-7 differ ({incorrect_abft_no_trig/abft_total*100:.2f}%)")
             print()
         
         if analysis_type == 'hash':
+            # Calculate total for percentage calculations
+            hash_total = correct_hash_trig + incorrect_hash_trig + correct_hash_no_trig + incorrect_hash_no_trig
+            
             print(f"=== HASH TRIGGER (Bytes 8-15) ===")
-            print(f"Correct Hash triggers:     {correct_hash_trig} - Hash triggered when bytes 8-15 differ")
-            print(f"Incorrect Hash triggers:   {incorrect_hash_trig} - Hash triggered when bytes 8-15 same")
-            print(f"Correct Hash no-triggers:  {correct_hash_no_trig} - Hash not triggered when bytes 8-15 same")
-            print(f"Incorrect Hash no-triggers: {incorrect_hash_no_trig} - Hash not triggered when bytes 8-15 differ")
+            print(f"Correct Hash triggers:     {correct_hash_trig} - Hash triggered when bytes 8-15 differ ({correct_hash_trig/hash_total*100:.2f}%)")
+            print(f"Incorrect Hash triggers:   {incorrect_hash_trig} - Hash triggered when bytes 8-15 same ({incorrect_hash_trig/hash_total*100:.2f}%)")
+            print(f"Correct Hash no-triggers:  {correct_hash_no_trig} - Hash not triggered when bytes 8-15 same ({correct_hash_no_trig/hash_total*100:.2f}%)")
+            print(f"Incorrect Hash no-triggers: {incorrect_hash_no_trig} - Hash not triggered when bytes 8-15 differ ({incorrect_hash_no_trig/hash_total*100:.2f}%)")
         
         # Calculate performance metrics
         valid_experiments = total_experiments - data_errors
@@ -358,8 +536,14 @@ def compare_all_experiments(analysis_type):
         if analysis_type == 'abft' and incorrect_abft_trigger:
             print(f"\n=== FALSE ABFT TRIGGERS ===")
             print("These experiments had same bytes 4-6 but ABFT was triggered:")
-            for exp in incorrect_abft_trigger:
-                print(f"  {exp}")
+            if verbose:
+                for exp in incorrect_abft_trigger:
+                    print(f"  {exp}")
+            else:
+                for i, exp in enumerate(incorrect_abft_trigger[:10]):
+                    print(f"  {exp}")
+                if len(incorrect_abft_trigger) > 10:
+                    print(f"  ... and {len(incorrect_abft_trigger) - 10} more")
         
         if analysis_type == 'hash' and incorrect_hash_trigger:
             print(f"\n=== FALSE HASH TRIGGERS ===")
@@ -373,21 +557,139 @@ def compare_all_experiments(analysis_type):
             for exp in abft_data_errors:
                 print(f"  {exp}")
         
+        # Export CSV files for each ABFT class
+        if analysis_type == 'abft':
+            print(f"\n=== EXPORTING CSV FILES ===")
+            
+            def export_class_to_csv(experiment_list, class_name, filename):
+                """Export experiment data for a class to CSV file"""
+                if not experiment_list:
+                    print(f"No data to export for {class_name}")
+                    return
+                
+                csv_data = []
+                for exp_name in experiment_list:
+                    faults_path = f'/fault/{exp_name}/faults'
+                    try:
+                        faults_data = f[faults_path][:]
+                        if len(faults_data) > 0:
+                            fault_address = faults_data[0]['fault_address']
+                            objdump_line = ""
+                            instruction = ""
+                            
+                            if objdump_content and fault_address is not None:
+                                objdump_result = find_address_in_objdump(fault_address, objdump_content)
+                                if objdump_result:
+                                    objdump_line = objdump_result.strip()
+                                    # Extract instruction part
+                                    line_parts = objdump_line.split('\t')
+                                    if len(line_parts) >= 3:
+                                        instruction = line_parts[2].strip()
+                            
+                            csv_data.append({
+                                'experiment': exp_name,
+                                'fault_address': f"0x{fault_address:x}" if fault_address is not None else "not found",
+                                'fault_address_dec': fault_address if fault_address is not None else "",
+                                'instruction': instruction,
+                                'objdump_line': objdump_line
+                            })
+                        else:
+                            csv_data.append({
+                                'experiment': exp_name,
+                                'fault_address': "no fault data",
+                                'fault_address_dec': "",
+                                'instruction': "",
+                                'objdump_line': ""
+                            })
+                    except KeyError:
+                        csv_data.append({
+                            'experiment': exp_name,
+                            'fault_address': "no fault data",
+                            'fault_address_dec': "",
+                            'instruction': "",
+                            'objdump_line': ""
+                        })
+                
+                # Write to CSV
+                print(filename)
+                with open(filename, 'w', newline='', encoding='utf-8') as csvfile:
+                    fieldnames = ['experiment', 'fault_address', 'fault_address_dec', 'instruction', 'objdump_line']
+                    writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+                    writer.writeheader()
+                    writer.writerows(csv_data)
+                
+                print(f"Exported {len(csv_data)} entries to {filename}")
+            
+            # Export each class to its own CSV file
+            export_class_to_csv(correct_abft_trigger, "Correct ABFT triggers", f"{output_dir}/{analysis_name}_{analysis_type}_correct_abft_triggers.csv")
+            export_class_to_csv(incorrect_abft_trigger, "Incorrect ABFT triggers (False Positives)", f"{output_dir}/{analysis_name}_{analysis_type}_incorrect_abft_triggers.csv")
+            export_class_to_csv(correct_abft_no_trigger, "Correct ABFT no-triggers", f"{output_dir}/{analysis_name}_{analysis_type}_correct_abft_no_triggers.csv")
+            export_class_to_csv(incorrect_abft_no_trigger, "Incorrect ABFT no-triggers (False Negatives)", f"{output_dir}/{analysis_name}_{analysis_type}_incorrect_abft_no_triggers.csv")
+
+        # Print max_diff summary for failed ABFT cases
+        if analysis_type == 'abft' and failed_abft_max_diff:
+            print(f"\n=== L1 Norm VALUES FOR FAILED ABFT CASES ===")
+            print(f"Total failed ABFT cases: {len(failed_abft_max_diff)}")
+            
+            # Find maximum max_diff value
+            max_diff_values = [max_diff for _, max_diff, _ in failed_abft_max_diff]
+            overall_max_diff = max(max_diff_values)
+            
+            print(f"Maximum L1 Norm across all failed cases: {overall_max_diff}")
+            
+            if verbose:
+                print(f"\nFailed cases with their L1 Norm and fault_address values:")
+                
+                # Sort by max_diff value in descending order
+                sorted_failed = sorted(failed_abft_max_diff, key=lambda x: x[1], reverse=True)
+                for exp_name, max_diff, fault_address in sorted_failed:
+                    fault_addr_str = f"0x{fault_address:x}" if fault_address is not None else "not found"
+                    if objdump_content and fault_address is not None:
+                        objdump_line = find_address_in_objdump(fault_address, objdump_content)
+                        if objdump_line:
+                            print(f"  {exp_name}: L1 Norm={max_diff}, fault_address={fault_addr_str}, objdump_line={objdump_line.strip()}")
+                        else:
+                            print(f"  {exp_name}: L1 Norm={max_diff}, fault_address={fault_addr_str}, objdump_line=not found")
+                    else:
+                        print(f"  {exp_name}: L1 Norm={max_diff}, fault_address={fault_addr_str}")
+        
+        # Write only the ABFT trigger section to file
+        if analysis_type == 'abft':
+            os.makedirs(output_dir, exist_ok=True)
+            with open(results_filename, 'w') as f:
+                abft_total = correct_abft_trig + incorrect_abft_trig + correct_abft_no_trig + incorrect_abft_no_trig
+                f.write(f"=== ABFT TRIGGER (Bytes 4-7) ===\n")
+                f.write(f"Correct ABFT triggers:     {correct_abft_trig} - ABFT triggered when bytes 4-7 differ ({correct_abft_trig/abft_total*100:.2f}%)\n")
+                f.write(f"Incorrect ABFT triggers:   {incorrect_abft_trig} - ABFT triggered when bytes 4-7 same ({incorrect_abft_trig/abft_total*100:.2f}%)\n")
+                f.write(f"Correct ABFT no-triggers:  {correct_abft_no_trig} - ABFT not triggered when bytes 4-7 same ({correct_abft_no_trig/abft_total*100:.2f}%)\n")
+                f.write(f"Incorrect ABFT no-triggers: {incorrect_abft_no_trig} - ABFT not triggered when bytes 4-7 differ ({incorrect_abft_no_trig/abft_total*100:.2f}%)\n")
+            print(f"\nABFT trigger analysis saved to: {results_filename}")
         
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Analyze HDF5 file for ABFT and Hash trigger correctness')
-    parser.add_argument('--type', choices=['abft', 'hash'], default='abft',
-                        help='Type of analysis to perform: abft (uses output_instruction_skip_kernel.hdf5) or hash (uses output_weight_tampering.hdf5, default: abft)')
+    parser.add_argument('--target', choices=['instructions', 'registers'], default='instructions',
+                        help='Target type for analysis: instructions or registers (default: instructions)')
+    parser.add_argument('--fault', choices=['transient', 'permanent'], default='transient',
+                        help='Fault type for analysis: transient or permanent (default: transient)')
+    parser.add_argument('--analysis', choices=['abft', 'hash'], default='abft',
+                        help='Analysis type: abft or hash (default: abft)')
+    parser.add_argument('--show-line', action='store_true',
+                        help='Show corresponding lines from objdump.txt for fault addresses')
+    parser.add_argument('--verbose', action='store_true',
+                        help='Show detailed WARNING and ERROR blocks for each failed experiment')
     
     args = parser.parse_args()
     
     try:
-        compare_all_experiments(args.type)
+        compare_all_experiments(args.target, args.fault, args.analysis, args.show_line, args.verbose)
     except FileNotFoundError:
-        print("Error: Required HDF5 file not found in current directory")
-        print("  For ABFT analysis: output_instruction_skip_kernel.hdf5")
-        print("  For Hash analysis: output_weight_tampering.hdf5")
+        print("Error: Required HDF5 file not found")
+        print("Expected files:")
+        print("  output/instructions/transient.hdf5")
+        print("  output/instructions/permanent.hdf5")
+        print("  output/registers/transient.hdf5")
+        print("  output/registers/permanent.hdf5")
     except KeyError as e:
         print(f"Error: Path not found in HDF5 file: {e}")
     except Exception as e:

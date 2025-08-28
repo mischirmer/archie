@@ -1,0 +1,2 @@
+# Exclude HDF5 files from Docker build context
+*.hdf5

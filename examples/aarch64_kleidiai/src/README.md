@@ -1,74 +1,42 @@
-# Bare Metal AArch64 Project
+# ARCHIE AArch64 Kleidi AI Example
 
-This project demonstrates a bare metal AArch64 application that uses the main function from `matmul_clamp_f16_f16_f16p_tiled.cpp` as the entry point. It's designed to run in QEMU system aarch64.
+This example demonstrates fault injection analysis for AArch64 Kleidi AI workloads.
 
-## Project Structure
+## Build Instructions
 
-- `kleidi/matmul_clamp_f16_f16_f16p_tiled.cpp` - Main C++ file containing the entry point
-- `kleidi/kai_matmul_clamp_f16_f16_f16p16x1biasf16_6x16x8_neon_mla.c` - Matrix multiplication implementation
-- `kleidi/kai_rhs_pack_kxn_f16p16x1biasf16_f16_f16_neon.c` - Matrix packing implementation
-- `kleidi/kai/kai_common.h` - Common header with bare metal compatibility
-- `startup.s` - Custom assembly startup code that calls main and enables NEON FP16
-- `link_script_custom.ld` - Custom linker script for bare metal AArch64
-- `Makefile` - Build configuration
-- `build/` - Build directory containing all object files
-
-## Building
-
-The project uses the ARM GNU Toolchain for bare metal compilation:
+To build the Docker container, navigate to the root level of the repository and run:
 
 ```bash
-make clean
-make
+docker build -t qemu-archie .
 ```
 
-This produces `test64.elf` which is suitable for QEMU system aarch64. All object files are placed in the `build/` directory to keep the source directories clean.
+## Running the Example
 
-## Running
+Once the container is built, you can run different fault injection experiments inside the container:
 
-### Using QEMU System AArch64
+### Instruction Skip Transient Analysis
+```bash
+./run_instruction_skip_transient.sh
+```
+This script performs transient instruction error analysis by injecting faults that cause instructions to be skipped temporarily.
+
+### Other Available Scripts
+- `./run_instruction_skip.sh` - Standard instruction skip analysis
+- `./run_weight_tampering.sh` - Weight tampering analysis  
+- `./run_minimal.sh` - Minimal fault injection test
+
+These scripts will execute the fault injection experiments and generate the analysis results in HDF5 format.
+
+## Analysis
+
+After running the experiments, you can analyze the results using the provided Python script:
 
 ```bash
-# Using the provided script (recommended)
-./run_qemu.sh [timeout_seconds]
+# For ABFT analysis (uses output_instruction_skip_kernel.hdf5)
+python3 analyze_hdf.py --type abft
 
-# Or manually
-qemu-system-aarch64 -machine virt -cpu cortex-a53 -kernel test64.elf -nographic
+# For Hash analysis (uses output_weight_tampering.hdf5)  
+python3 analyze_hdf.py --type hash
 ```
 
-### Exit QEMU
-- Press `Ctrl+A` then `X` to exit QEMU manually
-- Or the program will exit automatically when complete
-
-## Key Features
-
-- **Bare Metal Compatible**: Uses custom startup assembly code, no standard library dependencies
-- **QEMU Ready**: Entry point at 0x40000000, compatible with QEMU virt machine
-- **Custom Memory Layout**: Linker script defines appropriate memory sections
-- **Simple Startup**: Custom `startup.s` directly calls main without CRT overhead
-- **Error Handling**: Custom error handling suitable for bare metal environments
-- **Clean Build System**: All object files are organized in a separate `build/` directory
-
-## Technical Details
-
-- **Target**: AArch64 (Cortex-A53 with FP16 support)
-- **Entry Point**: `_Reset` (custom assembly startup)
-- **Main Function**: Located in `matmul_clamp_f16_f16_f16p_tiled.cpp`
-- **Memory Base**: 0x40000000 (QEMU virt machine RAM)
-- **Stack Size**: 64KB
-- **Compiler**: ARM GCC 14.2.1 with `-nostdlib -ffreestanding`
-- **Linker**: Direct LD linking without CRT
-
-## Dependencies
-
-- ARM GNU Toolchain (aarch64-none-elf-*)
-- QEMU system aarch64 (for testing)
-
-## Notes
-
-- The project removes all dependencies on standard C library functions
-- Custom implementations are provided for necessary functions like `memcpy`
-- All `printf` calls are commented out for bare metal compatibility
-- The program runs matrix multiplication tests and returns success/failure status
-- Uses custom assembly startup instead of CRT for minimal overhead
-- When main returns, the program enters an infinite loop (typical for bare metal)
+The analysis script will provide detailed metrics about trigger correctness, detection rates, and identify critical cases where triggers were missed.

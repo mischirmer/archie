@@ -19,7 +19,7 @@ RUN apt-get update && apt-get install -y \
 
 # Install aarch64-none-elf toolchain
 WORKDIR /archie
-RUN apt-get update && apt-get install -y wget && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y wget nano && rm -rf /var/lib/apt/lists/*
 RUN wget https://developer.arm.com/-/media/Files/downloads/gnu/14.3.rel1/binrel/arm-gnu-toolchain-14.3.rel1-x86_64-aarch64-none-elf.tar.xz -O /tmp/toolchain.tar.xz
 RUN tar -xf /tmp/toolchain.tar.xz -C /opt/
 RUN rm /tmp/toolchain.tar.xz
@@ -61,6 +61,11 @@ RUN make clean && make
 
 # Copy the aarch64_kleidiai example folder
 COPY examples/aarch64_kleidiai/ /archie/examples/aarch64_kleidiai/
+COPY examples/aarch64_kleidiai_rowcol/ /archie/examples/aarch64_kleidiai_rowcol/
+COPY examples/aarch64_kleidiai_rowcol_resnet/ /archie/examples/aarch64_kleidiai_rowcol_resnet/
+COPY examples/aarch64_kleidiai_rowcol_resnet_baseline/ /archie/examples/aarch64_kleidiai_rowcol_resnet_baseline/
+COPY examples/aarch64_kleidiai_rowcol_resnet_conv13/ /archie/examples/aarch64_kleidiai_rowcol_resnet_conv13/
+COPY examples/aarch64_kleidiai_rowcol_resnet_conv13_baseline/ /archie/examples/aarch64_kleidiai_rowcol_resnet_conv13_baseline/
 
 WORKDIR /archie/examples/aarch64_kleidiai/src
 # RUN make
@@ -72,5 +77,8 @@ RUN chmod +x run_instruction_skip.sh run_weight_tampering.sh
 
 # Test Case
 RUN chmod +x run_minimal.sh && ./run_minimal.sh
+
+RUN pip install h5py
+WORKDIR /archie/examples/aarch64_kleidiai_rowcol_resnet_conv13/
 
 ENTRYPOINT ["/bin/bash"]

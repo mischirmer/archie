@@ -4,3 +4,12 @@
 [submodule "examples/aarch64_kleidiai/src/xxHash"]
 	path = examples/aarch64_kleidiai/src/xxHash
 	url = https://github.com/Cyan4973/xxHash.git
+[submodule "examples/aarch64_kleidiai_rowcol/src/xxHash"]
+	path = examples/aarch64_kleidiai_rowcol/src/xxHash
+	url = https://github.com/Cyan4973/xxHash.git
+[submodule "examples/examples/aarch64_kleidiai_rowcol_resnet/src/xxHash"]
+	path = examples/examples/aarch64_kleidiai_rowcol_resnet/src/xxHash
+	url = https://github.com/Cyan4973/xxHash.git
+[submodule "examples/examples/aarch64_kleidiai_rowcol_resnet_baseline/src/xxHash"]
+	path = examples/examples/aarch64_kleidiai_rowcol_resnet_baseline/src/xxHash
+	url = https://github.com/Cyan4973/xxHash.git
